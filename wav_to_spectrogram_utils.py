@@ -1,5 +1,4 @@
 import librosa
-import soundfile as sf
 import numpy as np
 
 def wav_to_stft(track_path):
@@ -8,6 +7,7 @@ def wav_to_stft(track_path):
     n_fft = 1022
     y_pad = librosa.util.fix_length(y, size=n + n_fft // 2)
     Stft = librosa.stft(y_pad, n_fft=n_fft)
+    print(Stft.shape)
     Angle_Stft = np.angle(Stft)
     Intensity_Stft = np.abs(Stft)
     return Intensity_Stft, Angle_Stft, n, sr
@@ -18,6 +18,13 @@ def sft_to_wav(path, Intensity_Stft, Angle_Stft, n, sr):
     Stft = np.multiply(Intensity_Stft,Phase_Stft)
     y_out = librosa.istft(Stft, length=n)
     sf.write(path, y_out, sr, subtype='PCM_24')
+
+def sft_to_signal(Intensity_Stft, Angle_Stft, n, sr):
+    Phase_Stft = np.exp(1j *Angle_Stft)
+    Stft = np.multiply(Intensity_Stft,Phase_Stft)
+    y_out = librosa.istft(Stft, length=n)
+    # sf.write(path, y_out, sr, subtype='PCM_24')
+    return y_out
 
 
 def get_windows(Stft, step_size, window_size):
@@ -33,6 +40,10 @@ def get_windows(Stft, step_size, window_size):
             Sliding_windows.append(window)
     return Sliding_windows
 
+def get_mean(L):
+    L = np.array(L)
+    return np.mean(L, axis = 0)
+
 def get_Stft_from_windows(Windows, step_size, window_size):
     """_summary_
 
@@ -46,18 +57,23 @@ def get_Stft_from_windows(Windows, step_size, window_size):
     """
     y = []
     for i,window in enumerate(Windows):
-        for j,timestep_Stft in enumerate(window):
+        # print(window.shape)
+        for j in range(window.shape[1]):
+            timestep_Stft = window[:,j]
+            # print(timestep_Stft.shape)
             id = i*step_size + j
             if len(y) <= id:
                 y.append([timestep_Stft])
             else:
-                y[id].append(timestep_Stft)
+                (y[id]).append(timestep_Stft)
+    # print(len(y))
 
     Stft = []
-    for i in len(y):
-        Stft.append(np.mean(y[i]))
-
-    return Stft
+    for i in range(len(y)):
+        Stft.append(get_mean(y[i]))
+    Stft = np.array(Stft)
+    # print(Stft.shape)
+    return np.transpose(Stft)
 
 if __name__ == '__main__':
     for i in range(20):

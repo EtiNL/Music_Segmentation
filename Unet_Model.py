@@ -38,7 +38,7 @@ def upsample_block(x, conv_features, n_filters, dropout, activation_func):
 
 def build_unet_model():
     # inputs
-    inputs = layers.Input(shape=(128,512,1))
+    inputs = layers.Input(shape=(512,128,1))
     # encoder: contracting path - downsample
     p1 = downsample_block(inputs, 16)
     # 2 - downsample
