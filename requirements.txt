@@ -1,0 +1,9 @@
+pytest
+tensorflow
+matplotlib
+keras
+librosa
+pandas
+soundfile
+pathlib
+opencv-python

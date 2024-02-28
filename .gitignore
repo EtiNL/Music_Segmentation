@@ -1,5 +1,6 @@
 .ipynb_checkpoints/
 .python-version
 __pycache__/
-babyslakh_16k/
+raw_data/
 unet.keras
+main.egg-info
