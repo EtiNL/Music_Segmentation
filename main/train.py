@@ -1,5 +1,5 @@
-from dataLoader import DataLoader
-from Unet_Model import build_unet_model
+from dataLoader import *
+from Unet_Model import *
 import tensorflow as tf
 import keras.backend as K
 import gc
@@ -15,11 +15,11 @@ else:
     strategy = tf.distribute.MirroredStrategy()
     print(f'Using {len(gpus)} GPUs')
 
-EPOCHS = 10
+EPOCHS = 5
 n_folds = 5
 instr_class = 'Drums'
 
-dataset = DataLoader('/content/drive/MyDrive/babyslakh', instr_class)
+dataset = training_DataLoader('/content/drive/MyDrive/babyslakh', instr_class)
 
 gkf = KFold(n_splits=n_folds)
 
@@ -32,12 +32,8 @@ for i, (train_index, valid_index) in enumerate(gkf.split(dataset.metadata_df)):
     train_ds = dataset.get_data(train_index, 'train')
     val_ds = dataset.get_data(valid_index, 'test')
 
-    stats = StatsRecorder()
-    for X, y in train_ds.take(len(train_ds)):
-        stats.update(X)
-
     with strategy.scope():
-        model = build_unet_model(stats.mean, stats.std)
+        model = build_unet_stft_model()
 
     model.fit(train_ds, verbose=1,
               validation_data = val_ds,

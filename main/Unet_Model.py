@@ -1,8 +1,8 @@
 import tensorflow as tf
 import keras
 from keras import layers
-import matplotlib.pyplot as plt
-import numpy as np
+# import matplotlib.pyplot as plt
+# import numpy as np
 
 def downsample_block(x, n_filters):
    # Conv2D then ReLU activation
@@ -36,13 +36,31 @@ def upsample_block(x, conv_features, n_filters, dropout, activation_func):
         x = layers.Concatenate(axis=-1)([x, conv_features])
     return x
 
-def build_unet_model(mean, stddev):
+def get_spectrogram(waveform):
+  # Convert the waveform to a spectrogram via a STFT.
+  spectrogram = tf.signal.stft(waveform, frame_length=512, frame_step=128, fft_length = 510, pad_end= True, window_fn=tf.signal.hamming_window)
+  # Add a `channels` dimension, so that the spectrogram can be used
+  # as image-like input data with convolution layers (which expect
+  # shape (`batch_size`, `height`, `width`, `channels`).
+  spectrogram = spectrogram[..., tf.newaxis]
+  return tf.math.log1p(tf.abs(spectrogram)), tf.math.angle(spectrogram)
+
+def build_unet_stft_model():
     # inputs
-    inputs = layers.Input(shape=(256,128,1))
-    #normalization layer
-    norm_inputs = layers.Normalization(mean=mean, variance=stddev**2)(inputs)
+    inputs = layers.Input(shape=(2**15)) # ceil(log2(22050)) = 15 is the sampling rate of my training set and also half the sampling rate of standard CD quality
+
+    mag_spec, angle_spec = get_spectrogram(inputs)
+
+    # # #Normalize spectrograms
+    # bn_layer = layers.BatchNormalization(axis=-1)
+    # x = bn_layer(mag_spec)
+    # # Retrieve the mean and standard deviation learned by the BatchNormalization layer
+    # mean = bn_layer.get_weights()[0]
+    # std = bn_layer.get_weights()[1]
+
+
     # encoder: contracting path - downsample
-    p1 = downsample_block(norm_inputs, 16)
+    p1 = downsample_block(mag_spec, 16)
     # 2 - downsample
     p2 = downsample_block(p1, 32)
     # 3 - downsample
@@ -71,13 +89,33 @@ def build_unet_model(mean, stddev):
             dilation_rate=(2, 2),
             activation="sigmoid",
             padding="same",
-            kernel_initializer="he_normal",
-        )(u6)
-    # outputs
-    outputs = layers.Multiply()([u7, inputs])
+            kernel_initializer="he_normal")(u6)
+
+    # outputs (signal_reconstruction)
+    outputs_mag_spec = tf.math.expm1(layers.Multiply()([u7, mag_spec]))
+    outputs_spec = tf.math.multiply(tf.cast(outputs_mag_spec, tf.complex64), tf.complex(tf.cos(angle_spec),tf.sin(angle_spec)))
+    outputs = tf.signal.inverse_stft(tf.squeeze(outputs_spec, axis=-1), frame_length=512, frame_step=128, fft_length = 510,
+                                     window_fn=tf.signal.inverse_stft_window_fn(128, forward_window_fn=tf.signal.hamming_window))[:,:inputs.shape[1]]
+
+
     # unet model with Keras Functional API
     unet_model = tf.keras.Model(inputs, outputs, name="U-Net")
     unet_model.compile(optimizer="adam",
                         loss=tf.keras.metrics.mean_absolute_error)
 
     return unet_model
+
+
+if __name__=='__main__':
+    build_unet_stft_model()
+    # frame_length = 400
+    # frame_step = 160
+    # window_fn = tf.signal.hamming_window
+    # waveform = tf.random.normal(dtype=tf.float32, shape=[1000])
+    # stft = tf.signal.stft(
+    #     waveform, frame_length, frame_step, window_fn=window_fn)
+    # inverse_stft = tf.signal.inverse_stft(
+    #     stft, frame_length, frame_step,
+    #     window_fn=tf.signal.inverse_stft_window_fn(
+    #     frame_step, forward_window_fn=window_fn))
+    # print(inverse_stft.shape)

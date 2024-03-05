@@ -1,51 +1,71 @@
 import tensorflow as tf
 import numpy as np
-import librosa, cv2
-import matplotlib.pyplot as plt
-from wav_to_spectrogram_utils import *
-from Unet_Model import build_unet_model
+import librosa
+from Unet_Model import *
 from dataLoader import configure_for_performance
-import os, keras
 import soundfile as sf
 
-def denormalize(normalized_features, mean, stddev):
-    denormalized_features = normalized_features * stddev + mean
-    return denormalized_features
+class predict_DataLoader():
+    def __init__(self, path_to_file, batch_size = 8) -> None:
+        self.path_to_file = path_to_file
+        self.batch_size = batch_size
 
-def get_mean_and_std_of_normalization_layer(model):
-    print('OK')
-    for layer in model.layers:
-        print(1)
-        if isinstance(layer, keras.layers.Normalization):
-            mean = layer.mean.numpy()
-            stddev = np.sqrt(layer.variance.numpy())
-            return mean, stddev
+    def get_data(self):
+
+        y, sr = librosa.load(self.path_to_file)
+        self.len_signal = len(y)
+
+        if sr != 22050:
+          y = librosa.resample( y, orig_sr = sr, target_sr = 22050)
+
+        mean, stddev = np.mean(y), np.std(y)
+        y = (y-mean)/stddev
 
 
-def main(wav_path, model_weights_paths):
+        X = tf.signal.frame(y,
+                            2**15,
+                            2**13,
+                            pad_end=True,
+                            pad_value=0,
+                            axis=-1)
 
-    Intensity_Stft, Angle_Stft, n, sr, mean, stddev = wav_to_stft(wav_path)
-    spec = 2*np.log10(1+Intensity_Stft)
-    windows, pad_size = get_windows(spec, 64, 128)
+        return configure_for_performance(tf.data.Dataset.from_tensor_slices(X), self.batch_size, 'test'), mean, stddev
 
-    X = tf.data.Dataset.from_tensor_slices(windows)
 
-    test_X = configure_for_performance(X, 8, 'test')
+def get_signal_from_frames(Frames, step_size, input_signal_len):
+    y = []
+    for i in range(Frames.shape[0]):
+        frame = Frames[i,:]
+        for j in range(frame.shape[0]):
+            timestep_frame = frame[j]
+            id = i*step_size + j
+            if len(y) <= id:
+                y.append([timestep_frame])
+            else:
+                (y[id]).append(timestep_frame)
 
+    signal = []
+    for i in range(len(y)):
+        signal.append(np.mean(y[i]))
+    signal = np.array(signal)[:input_signal_len]
+    return signal
+
+
+
+def predict(wav_path, model_weights_paths):
+
+    data_loader = predict_DataLoader(wav_path)
+    X, mean, stddev = data_loader.get_data()
+    print(mean, stddev)
+    len_input_signal = data_loader.len_signal
+
+    signals = []
     for i, model_path in enumerate(model_weights_paths):
-        model = build_unet_model(0.6176444333988994,0.8785275373835086)
+        model = build_unet_stft_model()
         model.load_weights(model_path)
 
-        y_test = model.predict(test_X)
+        y = model.predict(X)
+        signals.append(get_signal_from_frames(y, 2**13, len_input_signal))
 
-        windows_res = [ np.reshape(denormalize(y_test[k], 0.6176444333988994, 0.8785275373835086),(256,128)) for k in range(y_test.shape[0])]
-        spec_res = get_Stft_from_windows(windows_res, 64, pad_size)
-        Intensity_Stft_res = np.power(10,spec_res/2) - 1
-        signal = denormalize(sft_to_signal(Intensity_Stft_res, Angle_Stft, n, sr), mean, stddev)
-        sf.write(f'raw_data/test_data/Dani_California_drums_{i}.wav', signal, sr, subtype='PCM_24')
-
-
-
-
-if __name__=='__main__':
-    main('raw_data/test_data/Dani_California.wav', ['Model_weights/Unet_Drums_f0.h5'])
+    signal = np.mean(np.array(signals), axis = 0)*stddev + mean
+    return signal
