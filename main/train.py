@@ -4,7 +4,6 @@ import tensorflow as tf
 import keras.backend as K
 import gc
 from sklearn.model_selection import KFold
-from statsrecorder import StatsRecorder
 
 # USE MULTIPLE GPUS
 gpus = tf.config.list_physical_devices('GPU')
